@@ -1,6 +1,10 @@
 from django.db import transaction
 
-from .models import User
+from .models import (
+    InstructorProfile,
+    LearnerProfile,
+    User,
+)
 
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -21,6 +25,16 @@ def create_user(
         last_name=last_name,
         role=role,
     )
+
+    if role == User.Role.LEARNER:
+        LearnerProfile.objects.create(
+            user=user,
+        )
+
+    elif role == User.Role.INSTRUCTOR:
+        InstructorProfile.objects.create(
+            user=user,
+        )
 
     return user
 

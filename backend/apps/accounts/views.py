@@ -4,10 +4,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .models import User
 from .serializers import (
     LoginSerializer,
     UserRegistrationSerializer,
     UserSerializer,
+    InstructorProfileSerializer,
+    LearnerProfileSerializer,
 )
 from .services import create_user, generate_tokens
 
@@ -106,5 +109,75 @@ class LogoutView(APIView):
             {
                 "message": "Logout successful."
             },
+            status=status.HTTP_200_OK,
+        )
+
+class MyProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        if user.role == User.Role.LEARNER:
+            return Response(
+                {
+                    "role": user.role,
+                    "profile": LearnerProfileSerializer(
+                        user.learner_profile
+                    ).data,
+                }
+            )
+
+        if user.role == User.Role.INSTRUCTOR:
+            return Response(
+                {
+                    "role": user.role,
+                    "profile": InstructorProfileSerializer(
+                        user.instructor_profile
+                    ).data,
+                }
+            )
+
+        return Response(
+            {
+                "role": user.role,
+                "profile": None,
+            }
+        )
+
+    def patch(self, request):
+        user = request.user
+
+        if user.role == User.Role.LEARNER:
+            profile = user.learner_profile
+
+            serializer = LearnerProfileSerializer(
+                profile,
+                data=request.data,
+                partial=True,
+            )
+
+        elif user.role == User.Role.INSTRUCTOR:
+            profile = user.instructor_profile
+
+            serializer = InstructorProfileSerializer(
+                profile,
+                data=request.data,
+                partial=True,
+            )
+
+        else:
+            return Response(
+                {
+                    "detail": "Administrator profile is managed separately."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(
+            serializer.data,
             status=status.HTTP_200_OK,
         )

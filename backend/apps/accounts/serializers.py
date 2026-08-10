@@ -2,8 +2,11 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
-from .models import User
-
+from .models import (
+    InstructorProfile,
+    LearnerProfile,
+    User,
+)
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
@@ -100,4 +103,45 @@ class UserSerializer(serializers.ModelSerializer):
             "role",
             "email_verified",
             "created_at",
+        ]
+
+
+class LearnerProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LearnerProfile
+        fields = [
+            "profile_photo",
+            "phone",
+            "country",
+            "city",
+            "date_of_birth",
+            "bio",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "created_at",
+            "updated_at",
+        ]
+
+
+class InstructorProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InstructorProfile
+        fields = [
+            "profile_photo",
+            "phone",
+            "specialization",
+            "experience_years",
+            "bio",
+            "website",
+            "linkedin",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "created_at",
+            "updated_at",
         ]

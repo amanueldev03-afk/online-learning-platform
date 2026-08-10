@@ -4,6 +4,7 @@ from .views import (
     LoginView,
     LogoutView,
     MeView,
+    MyProfileView,
     RegisterView,
 )
 
@@ -29,5 +30,10 @@ urlpatterns = [
         "me/",
         MeView.as_view(),
         name="me",
+    ),
+    path(
+        "profile/",
+        MyProfileView.as_view(),
+        name="profile",
     ),
 ]
