@@ -45,6 +45,9 @@ INSTALLED_APPS = [
     "django_filters",
     "drf_spectacular",
     "corsheaders",
+
+    # Local
+    "apps.accounts",
 ]
 
 MIDDLEWARE = [
@@ -173,5 +176,7 @@ ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 
 ASGI_APPLICATION = "config.asgi.application"
+
+AUTH_USER_MODEL = "accounts.User"
 
 
