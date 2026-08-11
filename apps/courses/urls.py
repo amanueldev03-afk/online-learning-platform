@@ -5,6 +5,10 @@ from .views import (
     CourseDetailView,
     CourseListCreateView,
     CoursePublishView,
+    CourseSectionDetailView,
+    CourseSectionListCreateView,
+    LessonDetailView,
+    LessonListCreateView,
 )
 
 
@@ -33,5 +37,27 @@ urlpatterns = [
         "<int:pk>/archive/",
         CourseArchiveView.as_view(),
         name="course-archive",
+    ),
+    path(
+        "<int:course_id>/sections/",
+        CourseSectionListCreateView.as_view(),
+        name="section-list-create",
+    ),
+
+    path(
+        "sections/<int:pk>/",
+        CourseSectionDetailView.as_view(),
+        name="section-detail",
+    ),
+    path(
+    "sections/<int:section_id>/lessons/",
+    LessonListCreateView.as_view(),
+    name="lesson-list-create",
+),
+
+    path(
+        "lessons/<int:pk>/",
+        LessonDetailView.as_view(),
+        name="lesson-detail",
     ),
 ]

@@ -7,10 +7,16 @@ from rest_framework.views import APIView
 
 from apps.accounts.models import User
 
-from .models import Course
+from .models import (
+    Course,
+    CourseSection,
+    Lesson,
+)
 from .permissions import (
     IsCourseOwnerOrAdmin,
     IsInstructor,
+    IsSectionOwnerOrAdmin,
+    IsLessonOwnerOrAdmin,
 )
 
 from .services import (
@@ -19,8 +25,12 @@ from .services import (
     publish_course,
 )
 
-from .serializers import CourseSerializer
+from .serializers import (
+    CourseSectionSerializer,
+    CourseSerializer,
+    LessonSerializer,
 
+)
 
 class CourseListCreateView(APIView):
 
@@ -320,4 +330,457 @@ class CourseArchiveView(APIView):
         return Response(
             CourseSerializer(course).data,
             status=status.HTTP_200_OK,
+        )
+
+
+
+
+class CourseSectionListCreateView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    def get(self, request, course_id):
+
+        course = Course.objects.filter(
+            id=course_id,
+        ).first()
+
+        if not course:
+            return Response(
+                {
+                    "detail": "Course not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        sections = (
+            CourseSection.objects
+            .filter(course=course)
+            .order_by("order", "created_at")
+        )
+
+        serializer = CourseSectionSerializer(
+            sections,
+            many=True,
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request, course_id):
+
+        course = Course.objects.filter(
+            id=course_id,
+        ).first()
+
+        if not course:
+            return Response(
+                {
+                    "detail": "Course not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if request.user.role == User.Role.ADMIN:
+            allowed = True
+        elif (
+            request.user.role == User.Role.INSTRUCTOR
+            and course.instructor_id == request.user.id
+        ):
+            allowed = True
+        else:
+            allowed = False
+
+        if not allowed:
+            return Response(
+                {
+                    "detail": (
+                        "You can only manage sections "
+                        "of your own courses."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = CourseSectionSerializer(
+            data=request.data,
+        )
+
+        serializer.is_valid(
+            raise_exception=True,
+        )
+
+        section = serializer.save(
+            course=course,
+        )
+
+        return Response(
+            CourseSectionSerializer(section).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+
+
+class CourseSectionDetailView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    def get_object(self, pk):
+
+        return (
+            CourseSection.objects
+            .select_related("course")
+            .filter(pk=pk)
+            .first()
+        )
+
+    def get(self, request, pk):
+
+        section = self.get_object(pk)
+
+        if not section:
+            return Response(
+                {
+                    "detail": "Section not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CourseSectionSerializer(
+            section,
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    def patch(self, request, pk):
+
+        section = self.get_object(pk)
+
+        if not section:
+            return Response(
+                {
+                    "detail": "Section not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        permission = IsSectionOwnerOrAdmin()
+
+        if not permission.has_object_permission(
+            request,
+            self,
+            section,
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "You cannot modify this section."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = CourseSectionSerializer(
+            section,
+            data=request.data,
+            partial=True,
+        )
+
+        serializer.is_valid(
+            raise_exception=True,
+        )
+
+        serializer.save()
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request, pk):
+
+        section = self.get_object(pk)
+
+        if not section:
+            return Response(
+                {
+                    "detail": "Section not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        permission = IsSectionOwnerOrAdmin()
+
+        if not permission.has_object_permission(
+            request,
+            self,
+            section,
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete this section."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        section.delete()
+
+        return Response(
+            status=status.HTTP_204_NO_CONTENT,
+        )
+
+
+
+class LessonListCreateView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    def get(self, request, section_id):
+
+        section = (
+            CourseSection.objects
+            .select_related("course")
+            .filter(id=section_id)
+            .first()
+        )
+
+        if not section:
+            return Response(
+                {
+                    "detail": "Section not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        lessons = (
+            Lesson.objects
+            .filter(section=section)
+            .order_by("order", "created_at")
+        )
+
+        serializer = LessonSerializer(
+            lessons,
+            many=True,
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request, section_id):
+
+        section = (
+            CourseSection.objects
+            .select_related("course")
+            .filter(id=section_id)
+            .first()
+        )
+
+        if not section:
+            return Response(
+                {
+                    "detail": "Section not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if request.user.role == User.Role.ADMIN:
+            allowed = True
+
+        elif (
+            request.user.role == User.Role.INSTRUCTOR
+            and section.course.instructor_id
+            == request.user.id
+        ):
+            allowed = True
+
+        else:
+            allowed = False
+
+        if not allowed:
+            return Response(
+                {
+                    "detail": (
+                        "You can only manage lessons "
+                        "in your own courses."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = LessonSerializer(
+            data=request.data,
+        )
+
+        serializer.is_valid(
+            raise_exception=True,
+        )
+
+        lesson = serializer.save(
+            section=section,
+        )
+
+        return Response(
+            LessonSerializer(lesson).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+
+class LessonDetailView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    def get_object(self, pk):
+
+        return (
+            Lesson.objects
+            .select_related(
+                "section",
+                "section__course",
+            )
+            .filter(pk=pk)
+            .first()
+        )
+
+    def get(self, request, pk):
+
+        lesson = self.get_object(pk)
+
+        if not lesson:
+            return Response(
+                {
+                    "detail": "Lesson not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        course = lesson.section.course
+
+        # Published lessons can be viewed by learners.
+        if (
+            lesson.is_published
+            and course.status == Course.Status.PUBLISHED
+        ):
+            return Response(
+                LessonSerializer(lesson).data,
+                status=status.HTTP_200_OK,
+            )
+
+        # Owner and admin can view unpublished lessons.
+        if (
+            request.user.role == User.Role.ADMIN
+            or (
+                request.user.role
+                == User.Role.INSTRUCTOR
+                and course.instructor_id
+                == request.user.id
+            )
+        ):
+            return Response(
+                LessonSerializer(lesson).data,
+                status=status.HTTP_200_OK,
+            )
+
+        return Response(
+            {
+                "detail": "Lesson not found."
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    def patch(self, request, pk):
+
+        lesson = self.get_object(pk)
+
+        if not lesson:
+            return Response(
+                {
+                    "detail": "Lesson not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        permission = IsLessonOwnerOrAdmin()
+
+        if not permission.has_object_permission(
+            request,
+            self,
+            lesson,
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "You cannot modify this lesson."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = LessonSerializer(
+            lesson,
+            data=request.data,
+            partial=True,
+        )
+
+        serializer.is_valid(
+            raise_exception=True,
+        )
+
+        serializer.save()
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    def delete(self, request, pk):
+
+        lesson = self.get_object(pk)
+
+        if not lesson:
+            return Response(
+                {
+                    "detail": "Lesson not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        permission = IsLessonOwnerOrAdmin()
+
+        if not permission.has_object_permission(
+            request,
+            self,
+            lesson,
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "You cannot delete this lesson."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        lesson.delete()
+
+        return Response(
+            status=status.HTTP_204_NO_CONTENT,
         )
