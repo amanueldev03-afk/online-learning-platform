@@ -50,6 +50,30 @@ class CourseListCreateView(APIView):
             .select_related("instructor")
         )
 
+        # Search by title or description
+        search = request.query_params.get("search")
+        if search:
+            courses = courses.filter(
+                title__icontains=search
+            ) | courses.filter(
+                description__icontains=search
+            )
+
+        # Filter by category
+        category = request.query_params.get("category")
+        if category:
+            courses = courses.filter(category__icontains=category)
+
+        # Filter by level
+        level = request.query_params.get("level")
+        if level:
+            courses = courses.filter(level=level)
+
+        # Filter by free/paid
+        is_free = request.query_params.get("is_free")
+        if is_free is not None:
+            courses = courses.filter(is_free=is_free.lower() == "true")
+
         serializer = CourseSerializer(
             courses,
             many=True,
