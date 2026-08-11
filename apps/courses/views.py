@@ -12,6 +12,13 @@ from .permissions import (
     IsCourseOwnerOrAdmin,
     IsInstructor,
 )
+
+from .services import (
+    CoursePublishError,
+    archive_course,
+    publish_course,
+)
+
 from .serializers import CourseSerializer
 
 
@@ -222,4 +229,95 @@ class CourseDetailView(APIView):
                 "message": "Course deleted successfully."
             },
             status=status.HTTP_204_NO_CONTENT,
+        )
+
+
+
+class CoursePublishView(APIView):
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    def post(self, request, pk):
+
+        try:
+            course = Course.objects.get(pk=pk)
+
+        except Course.DoesNotExist:
+            return Response(
+                {
+                    "detail": "Course not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if (
+            request.user.role != User.Role.ADMIN
+            and course.instructor_id != request.user.id
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "You can only publish "
+                        "your own courses."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            course = publish_course(course)
+
+        except CoursePublishError as exc:
+            return Response(
+                {
+                    "detail": str(exc)
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            CourseSerializer(course).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+
+class CourseArchiveView(APIView):
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    def post(self, request, pk):
+
+        try:
+            course = Course.objects.get(pk=pk)
+
+        except Course.DoesNotExist:
+            return Response(
+                {
+                    "detail": "Course not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if (
+            request.user.role != User.Role.ADMIN
+            and course.instructor_id != request.user.id
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "You can only archive "
+                        "your own courses."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        course = archive_course(course)
+
+        return Response(
+            CourseSerializer(course).data,
+            status=status.HTTP_200_OK,
         )
