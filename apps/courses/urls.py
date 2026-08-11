@@ -9,6 +9,7 @@ from .views import (
     CourseSectionListCreateView,
     LessonDetailView,
     LessonListCreateView,
+    CourseCurriculumView,
 )
 
 
@@ -59,5 +60,10 @@ urlpatterns = [
         "lessons/<int:pk>/",
         LessonDetailView.as_view(),
         name="lesson-detail",
+    ),
+    path(
+        "<int:pk>/curriculum/",
+        CourseCurriculumView.as_view(),
+        name="course-curriculum",
     ),
 ]

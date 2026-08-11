@@ -29,6 +29,7 @@ from .serializers import (
     CourseSectionSerializer,
     CourseSerializer,
     LessonSerializer,
+    CourseCurriculumSerializer,
 
 )
 
@@ -783,4 +784,40 @@ class LessonDetailView(APIView):
 
         return Response(
             status=status.HTTP_204_NO_CONTENT,
+        )
+
+
+class CourseCurriculumView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, pk):
+
+        course = (
+            Course.objects
+            .filter(
+                pk=pk,
+                status=Course.Status.PUBLISHED,
+            )
+            .select_related("instructor")
+            .prefetch_related(
+                "sections__lessons"
+            )
+            .first()
+        )
+
+        if not course:
+            return Response(
+                {
+                    "detail": "Course not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CourseCurriculumSerializer(
+            course
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
         )

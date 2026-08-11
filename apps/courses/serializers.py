@@ -248,3 +248,67 @@ class LessonSerializer(serializers.ModelSerializer):
                 })
 
         return attrs
+
+
+
+class LessonPublicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Lesson
+        fields = [
+            "id",
+            "title",
+            "description",
+            "content_type",
+            "video_url",
+            "article_content",
+            "duration_minutes",
+            "order",
+            "is_free_preview",
+        ]
+
+
+class CourseSectionPublicSerializer(serializers.ModelSerializer):
+    lessons = LessonPublicSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    class Meta:
+        model = CourseSection
+        fields = [
+            "id",
+            "title",
+            "description",
+            "order",
+            "lessons",
+        ]
+
+
+class CourseCurriculumSerializer(serializers.ModelSerializer):
+    instructor_name = serializers.CharField(
+        source="instructor.full_name",
+        read_only=True,
+    )
+
+    sections = CourseSectionPublicSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    class Meta:
+        model = Course
+        fields = [
+            "id",
+            "title",
+            "slug",
+            "short_description",
+            "description",
+            "thumbnail",
+            "category",
+            "level",
+            "language",
+            "requirements",
+            "learning_objectives",
+            "instructor_name",
+            "sections",
+        ]
