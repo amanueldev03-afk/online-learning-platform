@@ -6,6 +6,11 @@ from .views import (
     MeView,
     MyProfileView,
     RegisterView,
+    VerifyEmailView,
+    ResendVerificationView,
+    PasswordResetConfirmView,
+    PasswordResetRequestView,
+    GoogleLoginView,
 )
 
 app_name = "accounts"
@@ -35,5 +40,30 @@ urlpatterns = [
         "profile/",
         MyProfileView.as_view(),
         name="profile",
+    ),
+    path(
+        "verify-email/",
+        VerifyEmailView.as_view(),
+        name="verify-email",
+    ),
+    path(
+        "resend-verification/",
+        ResendVerificationView.as_view(),
+        name="resend-verification",
+    ),
+    path(
+        "forgot-password/",
+        PasswordResetRequestView.as_view(),
+        name="forgot-password",
+    ),
+    path(
+        "reset-password/",
+        PasswordResetConfirmView.as_view(),
+        name="reset-password",
+    ),
+    path(
+        "google/",
+        GoogleLoginView.as_view(),
+        name="google-login",
     ),
 ]

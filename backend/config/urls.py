@@ -9,11 +9,19 @@ from rest_framework_simplejwt.views import (
 )
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path("admin/",
+       admin.site.urls),
+
+
+    path(
+        "accounts/",
+        include("allauth.urls"),
+    ),
 
     path(
         "api/auth/",
         include("apps.accounts.urls"),
+
     ),
 
     path(
@@ -34,5 +42,9 @@ urlpatterns = [
             url_name="schema"
         ),
         name="swagger-ui",
+    ),
+    path(
+        "api/courses/",
+        include("apps.courses.urls"),
     ),
 ]

@@ -2,11 +2,21 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 
+import hashlib
+
+from django.utils import timezone
+
 from .models import (
+    EmailVerificationToken,
     InstructorProfile,
     LearnerProfile,
+    PasswordResetToken,
     User,
 )
+
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
@@ -77,6 +87,11 @@ class LoginSerializer(serializers.Serializer):
                 "This account is inactive."
             )
 
+        if not user.email_verified:
+            raise serializers.ValidationError(
+                "Please verify your email address before logging in."
+            )
+
         attrs["user"] = user
 
         return attrs
@@ -145,3 +160,132 @@ class InstructorProfileSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class EmailVerificationSerializer(
+    serializers.Serializer
+):
+    token = serializers.CharField()
+
+    def validate(self, attrs):
+        token = attrs["token"]
+
+        token_hash = hashlib.sha256(
+            token.encode()
+        ).hexdigest()
+
+        verification = (
+            EmailVerificationToken.objects
+            .select_related("user")
+            .filter(
+                token_hash=token_hash,
+                used_at__isnull=True,
+            )
+            .first()
+        )
+
+        if not verification:
+            raise serializers.ValidationError(
+                "Invalid or already used verification token."
+            )
+
+        if verification.expires_at <= timezone.now():
+            raise serializers.ValidationError(
+                "Verification token has expired."
+            )
+
+        attrs["verification"] = verification
+
+        return attrs
+
+class ResendVerificationSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.lower().strip()
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        return value.lower().strip()
+
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    token = serializers.CharField()
+
+    password = serializers.CharField(
+        write_only=True,
+        validators=[validate_password],
+    )
+
+    password_confirm = serializers.CharField(
+        write_only=True,
+    )
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["password_confirm"]:
+            raise serializers.ValidationError(
+                {
+                    "password_confirm": (
+                        "Passwords do not match."
+                    )
+                }
+            )
+
+        token = attrs["token"]
+
+        token_hash = hashlib.sha256(
+            token.encode()
+        ).hexdigest()
+
+        reset_token = (
+            PasswordResetToken.objects
+            .select_related("user")
+            .filter(
+                token_hash=token_hash,
+                used_at__isnull=True,
+            )
+            .first()
+        )
+
+        if not reset_token:
+            raise serializers.ValidationError(
+                "Invalid or already used password reset token."
+            )
+
+        if reset_token.expires_at <= timezone.now():
+            raise serializers.ValidationError(
+                "Password reset token has expired."
+            )
+
+        attrs["reset_token"] = reset_token
+        attrs["user"] = reset_token.user
+
+        return attrs
+
+
+
+class GoogleRoleSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(
+        choices=[
+            User.Role.LEARNER,
+            User.Role.INSTRUCTOR,
+        ]
+    )
+
+
+class GoogleLoginSerializer(serializers.Serializer):
+    credential = serializers.CharField(
+        write_only=True
+    )
+
+    role = serializers.ChoiceField(
+        choices=[
+            User.Role.LEARNER,
+            User.Role.INSTRUCTOR,
+        ],
+        required=False,
+    )
