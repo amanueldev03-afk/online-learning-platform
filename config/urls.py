@@ -43,4 +43,8 @@ urlpatterns = [
         ),
         name="swagger-ui",
     ),
+    path(
+        "api/courses/",
+        include("apps.courses.urls"),
+    ),
 ]

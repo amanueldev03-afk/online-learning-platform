@@ -55,8 +55,8 @@ def create_user(
     )
 
     transaction.on_commit(
-        lambda: send_verification_email_task.delay(
-            user.id,
+        lambda: send_verification_email(
+            user,
             raw_token,
         )
     )

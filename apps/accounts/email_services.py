@@ -45,11 +45,6 @@ def send_verification_email(
     )
 
     recipient = user.email
-    print(f"DEBUG: User object: {user}")
-    print(f"DEBUG: User email: {user.email}")
-    print(f"DEBUG: Recipient list: {[recipient]}")
-    print(f"DEBUG: From email: {settings.DEFAULT_FROM_EMAIL}")
-    print(f"DEBUG: EMAIL_HOST_USER: {settings.EMAIL_HOST_USER}")
     
     send_mail(
         subject=subject,
@@ -84,9 +79,6 @@ def send_password_reset_email(
         f"Online Learning Platform"
     )
 
-    print(f"DEBUG: Sending password reset email to: {user.email}")
-    print(f"DEBUG: From email: {settings.DEFAULT_FROM_EMAIL}")
-    
     send_mail(
         subject=subject,
         message=message,

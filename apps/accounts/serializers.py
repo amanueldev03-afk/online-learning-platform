@@ -87,6 +87,11 @@ class LoginSerializer(serializers.Serializer):
                 "This account is inactive."
             )
 
+        if not user.email_verified:
+            raise serializers.ValidationError(
+                "Please verify your email address before logging in."
+            )
+
         attrs["user"] = user
 
         return attrs
