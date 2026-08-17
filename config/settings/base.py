@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     # Local
     "apps.accounts",
     "apps.courses",
+    "apps.categories",
 
 
     #allauth
@@ -183,6 +184,9 @@ SPECTACULAR_SETTINGS = {
         "REST API for the Online Learning Platform."
     ),
     "VERSION": "1.0.0",
+    "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "COMPONENT_NO_READ_ONLY_REQUIRED": True,
 }
 
 ROOT_URLCONF = "config.urls"

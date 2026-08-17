@@ -8,6 +8,8 @@ from django.conf import settings
 from .managers import UserManager
 
 
+
+
 class User(AbstractBaseUser, PermissionsMixin):
     class Role(models.TextChoices):
         LEARNER = "LEARNER", "Learner"

@@ -1,13 +1,16 @@
+from drf_spectacular.utils import extend_schema, OpenApiResponse
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+
 from django.utils import timezone
 
 from .models import User
 from .serializers import (
+    AdminLoginSerializer,
     LoginSerializer,
     UserRegistrationSerializer,
     UserSerializer,
@@ -40,6 +43,12 @@ from .oauth_services import (
 class RegisterView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        operation_id="register",
+        description="Register a new user account",
+        request=UserRegistrationSerializer,
+        responses={201: UserSerializer}
+    )
     def post(self, request):
         serializer = UserRegistrationSerializer(
             data=request.data
@@ -67,6 +76,12 @@ class RegisterView(APIView):
 class LoginView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        operation_id="login",
+        description="Login with email and password",
+        request=LoginSerializer,
+        responses={200: OpenApiResponse(description="Login successful")}
+    )
     def post(self, request):
         serializer = LoginSerializer(
             data=request.data,
@@ -92,6 +107,11 @@ class LoginView(APIView):
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        operation_id="me",
+        description="Get current user information",
+        responses={200: UserSerializer}
+    )
     def get(self, request):
         serializer = UserSerializer(request.user)
 
@@ -104,6 +124,12 @@ class MeView(APIView):
 class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        operation_id="logout",
+        description="Logout and blacklist refresh token",
+        request={"type": "object", "properties": {"refresh": {"type": "string"}}},
+        responses={200: None}
+    )
     def post(self, request):
         refresh_token = request.data.get("refresh")
 
@@ -137,6 +163,11 @@ class LogoutView(APIView):
 class MyProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        operation_id="my_profile",
+        description="Get current user's profile",
+        responses={200: OpenApiResponse(description="Profile retrieved successfully")}
+    )
     def get(self, request):
         user = request.user
 
@@ -167,6 +198,12 @@ class MyProfileView(APIView):
             }
         )
 
+    @extend_schema(
+        operation_id="update_my_profile",
+        description="Update current user's profile",
+        request=LearnerProfileSerializer,
+        responses={200: OpenApiResponse(description="Profile updated successfully")}
+    )
     def patch(self, request):
         user = request.user
 
@@ -208,6 +245,12 @@ class MyProfileView(APIView):
 class VerifyEmailView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        operation_id="verify_email",
+        description="Verify email address with token",
+        request=EmailVerificationSerializer,
+        responses={200: OpenApiResponse(description="Email verified successfully")}
+    )
     def post(self, request):
         serializer = EmailVerificationSerializer(
             data=request.data
@@ -252,6 +295,12 @@ class VerifyEmailView(APIView):
 class ResendVerificationView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        operation_id="resend_verification",
+        description="Resend email verification",
+        request=ResendVerificationSerializer,
+        responses={200: OpenApiResponse(description="Verification email sent")}
+    )
     def post(self, request):
         serializer = ResendVerificationSerializer(
             data=request.data
@@ -293,6 +342,12 @@ class ResendVerificationView(APIView):
 class PasswordResetRequestView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        operation_id="password_reset_request",
+        description="Request password reset email",
+        request=PasswordResetRequestSerializer,
+        responses={200: OpenApiResponse(description="Password reset email sent")}
+    )
     def post(self, request):
         serializer = PasswordResetRequestSerializer(
             data=request.data
@@ -326,6 +381,12 @@ class PasswordResetRequestView(APIView):
 class PasswordResetConfirmView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        operation_id="password_reset_confirm",
+        description="Confirm password reset with token",
+        request=PasswordResetConfirmSerializer,
+        responses={200: OpenApiResponse(description="Password reset successful")}
+    )
     def post(self, request):
         serializer = PasswordResetConfirmSerializer(
             data=request.data
@@ -363,6 +424,12 @@ class PasswordResetConfirmView(APIView):
 class GoogleLoginView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        operation_id="google_login",
+        description="Login with Google OAuth",
+        request=GoogleLoginSerializer,
+        responses={200: OpenApiResponse(description="Google login successful")}
+    )
     def post(self, request):
 
         serializer = GoogleLoginSerializer(
@@ -462,6 +529,56 @@ class GoogleLoginView(APIView):
                 "user": UserSerializer(
                     user
                 ).data,
+                "tokens": tokens,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class AdminLoginView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(
+        operation_id="admin_login",
+        description="Admin login with email and password (no email verification required)",
+        request=AdminLoginSerializer,
+        responses={200: OpenApiResponse(description="Admin login successful")}
+    )
+    def post(self, request):
+        serializer = AdminLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"]
+        password = serializer.validated_data["password"]
+
+        from django.contrib.auth import authenticate
+
+        user = authenticate(request, username=email, password=password)
+
+        if not user:
+            return Response(
+                {"detail": "Invalid email or password."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if not (user.is_staff or user.is_superuser):
+            return Response(
+                {"detail": "Access denied. Admin access only."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not user.is_active:
+            return Response(
+                {"detail": "Account is inactive."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        tokens = generate_tokens(user)
+
+        return Response(
+            {
+                "message": "Admin login successful.",
+                "user": UserSerializer(user).data,
                 "tokens": tokens,
             },
             status=status.HTTP_200_OK,

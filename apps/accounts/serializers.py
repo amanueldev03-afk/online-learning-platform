@@ -22,10 +22,12 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(
         write_only=True,
         validators=[validate_password],
+        help_text="Password for the account (min 8 characters)"
     )
 
     password_confirm = serializers.CharField(
         write_only=True,
+        help_text="Confirm password (must match password)"
     )
 
     class Meta:
@@ -38,6 +40,12 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
             "password",
             "password_confirm",
         ]
+        extra_kwargs = {
+            "email": {"help_text": "User email address"},
+            "first_name": {"help_text": "User first name"},
+            "last_name": {"help_text": "User last name"},
+            "role": {"help_text": "User role (LEARNER or INSTRUCTOR)"},
+        }
 
     def validate_email(self, value):
         return value.lower().strip()
@@ -62,9 +70,12 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(
+        help_text="User email address"
+    )
     password = serializers.CharField(
         write_only=True,
+        help_text="User password"
     )
 
     def validate(self, attrs):
@@ -139,6 +150,14 @@ class LearnerProfileSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "profile_photo": {"help_text": "Profile photo URL"},
+            "phone": {"help_text": "Phone number"},
+            "country": {"help_text": "Country name"},
+            "city": {"help_text": "City name"},
+            "date_of_birth": {"help_text": "Date of birth"},
+            "bio": {"help_text": "Short biography"},
+        }
 
 
 class InstructorProfileSerializer(serializers.ModelSerializer):
@@ -160,12 +179,23 @@ class InstructorProfileSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "profile_photo": {"help_text": "Profile photo URL"},
+            "phone": {"help_text": "Phone number"},
+            "specialization": {"help_text": "Area of specialization"},
+            "experience_years": {"help_text": "Years of experience"},
+            "bio": {"help_text": "Professional biography"},
+            "website": {"help_text": "Personal website URL"},
+            "linkedin": {"help_text": "LinkedIn profile URL"},
+        }
 
 
 class EmailVerificationSerializer(
     serializers.Serializer
 ):
-    token = serializers.CharField()
+    token = serializers.CharField(
+        help_text="Email verification token received in email"
+    )
 
     def validate(self, attrs):
         token = attrs["token"]
@@ -199,14 +229,18 @@ class EmailVerificationSerializer(
         return attrs
 
 class ResendVerificationSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(
+        help_text="Email address to resend verification"
+    )
 
     def validate_email(self, value):
         return value.lower().strip()
 
 
 class PasswordResetRequestSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(
+        help_text="Email address for password reset"
+    )
 
     def validate_email(self, value):
         return value.lower().strip()
@@ -214,15 +248,19 @@ class PasswordResetRequestSerializer(serializers.Serializer):
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
-    token = serializers.CharField()
+    token = serializers.CharField(
+        help_text="Password reset token received in email"
+    )
 
     password = serializers.CharField(
         write_only=True,
         validators=[validate_password],
+        help_text="New password (min 8 characters)"
     )
 
     password_confirm = serializers.CharField(
         write_only=True,
+        help_text="Confirm new password (must match password)"
     )
 
     def validate(self, attrs):
@@ -273,13 +311,15 @@ class GoogleRoleSerializer(serializers.Serializer):
         choices=[
             User.Role.LEARNER,
             User.Role.INSTRUCTOR,
-        ]
+        ],
+        help_text="User role for Google login"
     )
 
 
 class GoogleLoginSerializer(serializers.Serializer):
     credential = serializers.CharField(
-        write_only=True
+        write_only=True,
+        help_text="Google OAuth credential token"
     )
 
     role = serializers.ChoiceField(
@@ -288,4 +328,16 @@ class GoogleLoginSerializer(serializers.Serializer):
             User.Role.INSTRUCTOR,
         ],
         required=False,
+        help_text="User role (required for new accounts)"
+    )
+
+
+class AdminLoginSerializer(serializers.Serializer):
+    email = serializers.EmailField(
+        help_text="Admin email address"
+    )
+    password = serializers.CharField(
+        help_text="Admin password",
+        style={"input_type": "password"},
+        write_only=True,
     )

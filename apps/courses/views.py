@@ -1,5 +1,6 @@
 from django.utils import timezone
-
+from django.db.models import Q
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -41,38 +42,106 @@ class CourseListCreateView(APIView):
 
         return [AllowAny()]
 
+    @extend_schema(
+        operation_id="list_courses",
+        description="List all published courses with optional filtering",
+        parameters=[
+            {
+                "name": "search",
+                "required": False,
+                "type": str,
+                "description": "Search by title or description"
+            },
+            {
+                "name": "category",
+                "required": False,
+                "type": str,
+                "description": "Filter by category"
+            },
+            {
+                "name": "level",
+                "required": False,
+                "type": str,
+                "description": "Filter by level (BEGINNER, INTERMEDIATE, ADVANCED)"
+            },
+            {
+                "name": "is_free",
+                "required": False,
+                "type": bool,
+                "description": "Filter by free/paid status"
+            }
+        ],
+        responses={200: CourseSerializer(many=True)}
+    )
     def get(self, request):
+
         courses = (
             Course.objects
             .filter(
-                status=Course.Status.PUBLISHED
+                status=Course.Status.PUBLISHED,
             )
-            .select_related("instructor")
+            .select_related(
+                "instructor",
+                "category",
+                "category__parent",
+            )
         )
 
-        # Search by title or description
-        search = request.query_params.get("search")
+        search = request.query_params.get(
+            "search"
+        )
+
+        category = request.query_params.get(
+            "category"
+        )
+
+        category_slug = request.query_params.get(
+            "category_slug"
+        )
+
+        level = request.query_params.get(
+            "level"
+        )
+
+        language = request.query_params.get(
+            "language"
+        )
+
+        is_free = request.query_params.get(
+            "is_free"
+        )
+
         if search:
             courses = courses.filter(
-                title__icontains=search
-            ) | courses.filter(
-                description__icontains=search
+                Q(title__icontains=search)
+                | Q(short_description__icontains=search)
+                | Q(description__icontains=search)
             )
 
-        # Filter by category
-        category = request.query_params.get("category")
         if category:
-            courses = courses.filter(category__icontains=category)
+            courses = courses.filter(
+                category_id=category
+            )
 
-        # Filter by level
-        level = request.query_params.get("level")
+        if category_slug:
+            courses = courses.filter(
+                category__slug=category_slug
+            )
+
         if level:
-            courses = courses.filter(level=level)
+            courses = courses.filter(
+                level=level
+            )
 
-        # Filter by free/paid
-        is_free = request.query_params.get("is_free")
+        if language:
+            courses = courses.filter(
+                language__iexact=language
+            )
+
         if is_free is not None:
-            courses = courses.filter(is_free=is_free.lower() == "true")
+            courses = courses.filter(
+                is_free=is_free.lower() == "true"
+            )
 
         serializer = CourseSerializer(
             courses,
@@ -84,6 +153,12 @@ class CourseListCreateView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="create_course",
+        description="Create a new course (instructor only)",
+        request=CourseSerializer,
+        responses={201: CourseSerializer}
+    )
     def post(self, request):
         serializer = CourseSerializer(
             data=request.data
@@ -114,6 +189,11 @@ class CourseDetailView(APIView):
         except Course.DoesNotExist:
             return None
 
+    @extend_schema(
+        operation_id="retrieve_course",
+        description="Retrieve a specific course by ID",
+        responses={200: CourseSerializer, 404: None}
+    )
     def get(self, request, pk):
 
         course = self.get_object(pk)
@@ -158,6 +238,12 @@ class CourseDetailView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="update_course",
+        description="Update a course completely (owner/admin only)",
+        request=CourseSerializer,
+        responses={200: CourseSerializer, 403: None, 404: None}
+    )
     def put(self, request, pk):
 
         course = self.get_object(pk)
@@ -196,6 +282,12 @@ class CourseDetailView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="partial_update_course",
+        description="Update a course partially (owner/admin only)",
+        request=CourseSerializer,
+        responses={200: CourseSerializer, 403: None, 404: None}
+    )
     def patch(self, request, pk):
 
         course = self.get_object(pk)
@@ -235,6 +327,11 @@ class CourseDetailView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="delete_course",
+        description="Delete a course (owner/admin only)",
+        responses={204: None, 403: None, 404: None}
+    )
     def delete(self, request, pk):
 
         course = self.get_object(pk)
@@ -273,6 +370,11 @@ class CoursePublishView(APIView):
         IsAuthenticated,
     ]
 
+    @extend_schema(
+        operation_id="publish_course",
+        description="Publish a course (owner/admin only)",
+        responses={200: CourseSerializer, 400: None, 403: None, 404: None}
+    )
     def post(self, request, pk):
 
         try:
@@ -323,6 +425,11 @@ class CourseArchiveView(APIView):
         IsAuthenticated,
     ]
 
+    @extend_schema(
+        operation_id="archive_course",
+        description="Archive a course (owner/admin only)",
+        responses={200: CourseSerializer, 403: None, 404: None}
+    )
     def post(self, request, pk):
 
         try:
@@ -366,6 +473,11 @@ class CourseSectionListCreateView(APIView):
         IsAuthenticated,
     ]
 
+    @extend_schema(
+        operation_id="list_sections",
+        description="List all sections for a specific course",
+        responses={200: CourseSectionSerializer(many=True), 404: None}
+    )
     def get(self, request, course_id):
 
         course = Course.objects.filter(
@@ -396,6 +508,12 @@ class CourseSectionListCreateView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="create_section",
+        description="Create a new section for a course (owner/admin only)",
+        request=CourseSectionSerializer,
+        responses={201: CourseSectionSerializer, 403: None, 404: None}
+    )
     def post(self, request, course_id):
 
         course = Course.objects.filter(
@@ -466,6 +584,11 @@ class CourseSectionDetailView(APIView):
             .first()
         )
 
+    @extend_schema(
+        operation_id="retrieve_section",
+        description="Retrieve a specific section by ID",
+        responses={200: CourseSectionSerializer, 404: None}
+    )
     def get(self, request, pk):
 
         section = self.get_object(pk)
@@ -487,6 +610,12 @@ class CourseSectionDetailView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="partial_update_section",
+        description="Update a section partially (owner/admin only)",
+        request=CourseSectionSerializer,
+        responses={200: CourseSectionSerializer, 403: None, 404: None}
+    )
     def patch(self, request, pk):
 
         section = self.get_object(pk)
@@ -532,6 +661,11 @@ class CourseSectionDetailView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="delete_section",
+        description="Delete a section (owner/admin only)",
+        responses={204: None, 403: None, 404: None}
+    )
     def delete(self, request, pk):
 
         section = self.get_object(pk)
@@ -574,6 +708,11 @@ class LessonListCreateView(APIView):
         IsAuthenticated,
     ]
 
+    @extend_schema(
+        operation_id="list_lessons",
+        description="List all lessons for a specific section",
+        responses={200: LessonSerializer(many=True), 404: None}
+    )
     def get(self, request, section_id):
 
         section = (
@@ -607,6 +746,12 @@ class LessonListCreateView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="create_lesson",
+        description="Create a new lesson for a section (owner/admin only)",
+        request=LessonSerializer,
+        responses={201: LessonSerializer, 403: None, 404: None}
+    )
     def post(self, request, section_id):
 
         section = (
@@ -685,6 +830,11 @@ class LessonDetailView(APIView):
             .first()
         )
 
+    @extend_schema(
+        operation_id="retrieve_lesson",
+        description="Retrieve a specific lesson by ID",
+        responses={200: LessonSerializer, 404: None}
+    )
     def get(self, request, pk):
 
         lesson = self.get_object(pk)
@@ -731,6 +881,12 @@ class LessonDetailView(APIView):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    @extend_schema(
+        operation_id="partial_update_lesson",
+        description="Update a lesson partially (owner/admin only)",
+        request=LessonSerializer,
+        responses={200: LessonSerializer, 403: None, 404: None}
+    )
     def patch(self, request, pk):
 
         lesson = self.get_object(pk)
@@ -776,6 +932,11 @@ class LessonDetailView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="delete_lesson",
+        description="Delete a lesson (owner/admin only)",
+        responses={204: None, 403: None, 404: None}
+    )
     def delete(self, request, pk):
 
         lesson = self.get_object(pk)
@@ -814,6 +975,11 @@ class LessonDetailView(APIView):
 class CourseCurriculumView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        operation_id="course_curriculum",
+        description="Get the full curriculum of a published course (sections and lessons)",
+        responses={200: CourseCurriculumSerializer, 404: None}
+    )
     def get(self, request, pk):
 
         course = (
