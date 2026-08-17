@@ -1,6 +1,7 @@
 from rest_framework.permissions import BasePermission
 
 from apps.accounts.models import User
+from apps.accounts.permissions import IsAdminOrInstructorOwner
 
 
 class IsInstructor(BasePermission):
@@ -39,50 +40,19 @@ class IsCourseOwnerOrAdmin(BasePermission):
         )
 
 
-class IsSectionOwnerOrAdmin(BasePermission):
+class IsSectionOwnerOrAdmin(IsAdminOrInstructorOwner):
     """
-    Only the course instructor or administrator
-    can modify a section.
-    """
-
-    def has_object_permission(
-        self,
-        request,
-        view,
-        obj,
-    ):
-        if not request.user.is_authenticated:
-            return False
-
-        if request.user.role == User.Role.ADMIN:
-            return True
-
-        return (
-            request.user.role == User.Role.INSTRUCTOR
-            and obj.course.instructor_id == request.user.id
-        )
-
-
-class IsLessonOwnerOrAdmin(BasePermission):
-    """
-    Only the course instructor or administrator
-    can modify a lesson.
+    Only the course instructor or administrator can modify a section.
     """
 
-    def has_object_permission(
-        self,
-        request,
-        view,
-        obj,
-    ):
-        if not request.user.is_authenticated:
-            return False
+    def get_course_instructor_id(self, obj):
+        return obj.course.instructor_id
 
-        if request.user.role == User.Role.ADMIN:
-            return True
 
-        return (
-            request.user.role == User.Role.INSTRUCTOR
-            and obj.section.course.instructor_id
-            == request.user.id
-        )
+class IsLessonOwnerOrAdmin(IsAdminOrInstructorOwner):
+    """
+    Only the course instructor or administrator can modify a lesson.
+    """
+
+    def get_course_instructor_id(self, obj):
+        return obj.section.course.instructor_id

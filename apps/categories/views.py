@@ -3,6 +3,10 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.exceptions import ValidationError
+import logging
+
+logger = logging.getLogger(__name__)
 
 from apps.accounts.models import User
 
@@ -31,6 +35,11 @@ class CategoryListCreateView(APIView):
             "parent",
         )
 
+        page = self.paginate_queryset(categories)
+        if page is not None:
+            serializer = CategorySerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
         serializer = CategorySerializer(
             categories,
             many=True,
@@ -48,32 +57,44 @@ class CategoryListCreateView(APIView):
         responses={201: CategorySerializer}
     )
     def post(self, request):
+        try:
+            if not (request.user.is_staff or request.user.is_superuser):
+                return Response(
+                    {
+                        "detail": (
+                            "Only administrators can "
+                            "create categories."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
-        if not (request.user.is_staff or request.user.is_superuser):
-            return Response(
-                {
-                    "detail": (
-                        "Only administrators can "
-                        "create categories."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            serializer = CategorySerializer(
+                data=request.data,
             )
 
-        serializer = CategorySerializer(
-            data=request.data,
-        )
+            serializer.is_valid(
+                raise_exception=True,
+            )
 
-        serializer.is_valid(
-            raise_exception=True,
-        )
+            category = serializer.save()
 
-        category = serializer.save()
-
-        return Response(
-            CategorySerializer(category).data,
-            status=status.HTTP_201_CREATED,
-        )
+            return Response(
+                CategorySerializer(category).data,
+                status=status.HTTP_201_CREATED,
+            )
+        except ValidationError as e:
+            logger.error(f"Category creation validation error: {e}")
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(f"Category creation error: {e}")
+            return Response(
+                {"detail": "An error occurred during category creation."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 
@@ -118,44 +139,56 @@ class CategoryDetailView(APIView):
         responses={200: CategorySerializer}
     )
     def patch(self, request, pk):
+        try:
+            if not (request.user.is_staff or request.user.is_superuser):
+                return Response(
+                    {
+                        "detail": (
+                            "Only administrators can "
+                            "update categories."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
-        if not (request.user.is_staff or request.user.is_superuser):
-            return Response(
-                {
-                    "detail": (
-                        "Only administrators can "
-                        "update categories."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            category = self.get_object(pk)
+
+            if not category:
+                return Response(
+                    {
+                        "detail": "Category not found."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            serializer = CategorySerializer(
+                category,
+                data=request.data,
+                partial=True,
             )
 
-        category = self.get_object(pk)
-
-        if not category:
-            return Response(
-                {
-                    "detail": "Category not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
+            serializer.is_valid(
+                raise_exception=True,
             )
 
-        serializer = CategorySerializer(
-            category,
-            data=request.data,
-            partial=True,
-        )
+            serializer.save()
 
-        serializer.is_valid(
-            raise_exception=True,
-        )
-
-        serializer.save()
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
+            return Response(
+                serializer.data,
+                status=status.HTTP_200_OK,
+            )
+        except ValidationError as e:
+            logger.error(f"Category update validation error: {e}")
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(f"Category update error: {e}")
+            return Response(
+                {"detail": "An error occurred during category update."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
     @extend_schema(
         operation_id="delete_category",
@@ -163,42 +196,48 @@ class CategoryDetailView(APIView):
         responses={204: OpenApiResponse(description="Category deleted successfully")}
     )
     def delete(self, request, pk):
-
-        if not (request.user.is_staff or request.user.is_superuser):
-            return Response(
-                {
-                    "detail": (
-                        "Only administrators can "
-                        "delete categories."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        category = self.get_object(pk)
-
-        if not category:
-            return Response(
-                {
-                    "detail": "Category not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
         try:
-            category.delete()
+            if not (request.user.is_staff or request.user.is_superuser):
+                return Response(
+                    {
+                        "detail": (
+                            "Only administrators can "
+                            "delete categories."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
-        except Exception:
+            category = self.get_object(pk)
+
+            if not category:
+                return Response(
+                    {
+                        "detail": "Category not found."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            try:
+                category.delete()
+
+            except Exception:
+                return Response(
+                    {
+                        "detail": (
+                            "Category cannot be deleted "
+                            "because it is being used by courses."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             return Response(
-                {
-                    "detail": (
-                        "Category cannot be deleted "
-                        "because it is being used by courses."
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST,
+                status=status.HTTP_204_NO_CONTENT,
             )
-
-        return Response(
-            status=status.HTTP_204_NO_CONTENT,
-        )
+        except Exception as e:
+            logger.error(f"Category deletion error: {e}")
+            return Response(
+                {"detail": "An error occurred during category deletion."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
