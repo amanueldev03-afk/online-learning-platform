@@ -10,7 +10,12 @@ from .models import (
 class CourseSerializer(serializers.ModelSerializer):
 
     instructor_name = serializers.CharField(
-        source="instructor.full_name",
+        source="instructor.get_full_name",
+        read_only=True,
+    )
+
+    category_name = serializers.CharField(
+        source="category.name",
         read_only=True,
     )
 
@@ -27,6 +32,7 @@ class CourseSerializer(serializers.ModelSerializer):
             "description",
             "thumbnail",
             "category",
+            "category_name",
             "level",
             "language",
             "price",
@@ -38,6 +44,20 @@ class CourseSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "title": {"help_text": "Course title"},
+            "slug": {"help_text": "URL-friendly course identifier (auto-generated from title)"},
+            "short_description": {"help_text": "Brief course description (max 500 characters)"},
+            "description": {"help_text": "Detailed course description"},
+            "thumbnail": {"help_text": "Course thumbnail image"},
+            "category": {"help_text": "Course category"},
+            "level": {"help_text": "Course difficulty level (BEGINNER, INTERMEDIATE, ADVANCED)"},
+            "language": {"help_text": "Course language (default: English)"},
+            "price": {"help_text": "Course price (0 for free courses)"},
+            "is_free": {"help_text": "Whether the course is free"},
+            "requirements": {"help_text": "Course prerequisites"},
+            "learning_objectives": {"help_text": "Learning objectives and goals"},
+        }
 
         read_only_fields = [
             "id",
@@ -110,6 +130,12 @@ class CourseSectionSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "title": {"help_text": "Section title"},
+            "description": {"help_text": "Section description"},
+            "order": {"help_text": "Section order (must be non-negative)"},
+            "is_published": {"help_text": "Whether the section is published"},
+        }
 
         read_only_fields = [
             "id",
@@ -157,6 +183,19 @@ class LessonSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "title": {"help_text": "Lesson title"},
+            "description": {"help_text": "Lesson description"},
+            "content_type": {"help_text": "Content type (VIDEO, ARTICLE, DOCUMENT, EXTERNAL)"},
+            "video_url": {"help_text": "Video URL (required for VIDEO type)"},
+            "article_content": {"help_text": "Article content (required for ARTICLE type)"},
+            "document": {"help_text": "Document file (required for DOCUMENT type)"},
+            "external_url": {"help_text": "External resource URL (required for EXTERNAL type)"},
+            "duration_minutes": {"help_text": "Lesson duration in minutes"},
+            "order": {"help_text": "Lesson order within section"},
+            "is_free_preview": {"help_text": "Whether this lesson is available as free preview"},
+            "is_published": {"help_text": "Whether the lesson is published"},
+        }
 
         read_only_fields = [
             "id",

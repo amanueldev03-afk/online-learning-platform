@@ -1,9 +1,16 @@
 from django.utils import timezone
-
+from django.db.models import Q
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.generics import ListCreateAPIView
+from rest_framework.exceptions import ValidationError
+import logging
+
+logger = logging.getLogger(__name__)
 
 from apps.accounts.models import User
 
@@ -18,6 +25,7 @@ from .permissions import (
     IsSectionOwnerOrAdmin,
     IsLessonOwnerOrAdmin,
 )
+from apps.accounts.permissions import IsAdminOrInstructor
 
 from .services import (
     CoursePublishError,
@@ -33,7 +41,9 @@ from .serializers import (
 
 )
 
-class CourseListCreateView(APIView):
+class CourseListCreateView(ListCreateAPIView):
+
+    serializer_class = CourseSerializer
 
     def get_permissions(self):
         if self.request.method == "POST":
@@ -41,66 +51,90 @@ class CourseListCreateView(APIView):
 
         return [AllowAny()]
 
-    def get(self, request):
+    def get_queryset(self):
         courses = (
             Course.objects
             .filter(
-                status=Course.Status.PUBLISHED
+                status=Course.Status.PUBLISHED,
             )
-            .select_related("instructor")
+            .select_related(
+                "instructor",
+                "category",
+                "category__parent",
+            )
         )
 
-        # Search by title or description
-        search = request.query_params.get("search")
+        search = self.request.query_params.get("search")
+        category = self.request.query_params.get("category")
+        category_slug = self.request.query_params.get("category_slug")
+        level = self.request.query_params.get("level")
+        language = self.request.query_params.get("language")
+        is_free = self.request.query_params.get("is_free")
+
         if search:
             courses = courses.filter(
-                title__icontains=search
-            ) | courses.filter(
-                description__icontains=search
+                Q(title__icontains=search)
+                | Q(short_description__icontains=search)
+                | Q(description__icontains=search)
             )
 
-        # Filter by category
-        category = request.query_params.get("category")
         if category:
-            courses = courses.filter(category__icontains=category)
+            courses = courses.filter(category_id=category)
 
-        # Filter by level
-        level = request.query_params.get("level")
+        if category_slug:
+            courses = courses.filter(category__slug=category_slug)
+
         if level:
             courses = courses.filter(level=level)
 
-        # Filter by free/paid
-        is_free = request.query_params.get("is_free")
+        if language:
+            courses = courses.filter(language__iexact=language)
+
         if is_free is not None:
             courses = courses.filter(is_free=is_free.lower() == "true")
 
-        serializer = CourseSerializer(
-            courses,
-            many=True,
-        )
+        return courses
 
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
+    @extend_schema(
+        operation_id="list_courses",
+        description="List all published courses with optional filtering",
+        parameters=[
+            {
+                "name": "search",
+                "required": False,
+                "type": str,
+                "description": "Search by title or description"
+            },
+            {
+                "name": "category",
+                "required": False,
+                "type": str,
+                "description": "Filter by category"
+            },
+            {
+                "name": "level",
+                "required": False,
+                "type": str,
+                "description": "Filter by level (BEGINNER, INTERMEDIATE, ADVANCED)"
+            },
+            {
+                "name": "is_free",
+                "required": False,
+                "type": bool,
+                "description": "Filter by free/paid status"
+            }
+        ],
+        responses={200: CourseSerializer(many=True)}
+    )
 
-    def post(self, request):
-        serializer = CourseSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
-
-        course = serializer.save(
-            instructor=request.user
-        )
-
-        return Response(
-            CourseSerializer(course).data,
-            status=status.HTTP_201_CREATED,
-        )
+    @extend_schema(
+        operation_id="create_course",
+        description="Create a new course (instructor only)",
+        request=CourseSerializer,
+        responses={201: CourseSerializer}
+    )
+    def perform_create(self, serializer):
+        serializer.save(instructor=self.request.user)
 
 
 class CourseDetailView(APIView):
@@ -114,6 +148,11 @@ class CourseDetailView(APIView):
         except Course.DoesNotExist:
             return None
 
+    @extend_schema(
+        operation_id="retrieve_course",
+        description="Retrieve a specific course by ID",
+        responses={200: CourseSerializer, 404: None}
+    )
     def get(self, request, pk):
 
         course = self.get_object(pk)
@@ -158,113 +197,160 @@ class CourseDetailView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="update_course",
+        description="Update a course completely (owner/admin only)",
+        request=CourseSerializer,
+        responses={200: CourseSerializer, 403: None, 404: None}
+    )
     def put(self, request, pk):
+        try:
+            course = self.get_object(pk)
 
-        course = self.get_object(pk)
+            if not course:
+                return Response(
+                    {"detail": "Course not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        if not course:
-            return Response(
-                {"detail": "Course not found."},
-                status=status.HTTP_404_NOT_FOUND,
+            permission = IsCourseOwnerOrAdmin()
+
+            if not permission.has_object_permission(
+                request,
+                self,
+                course,
+            ):
+                return Response(
+                    {"detail": "You cannot modify this course."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            serializer = CourseSerializer(
+                course,
+                data=request.data,
             )
 
-        permission = IsCourseOwnerOrAdmin()
-
-        if not permission.has_object_permission(
-            request,
-            self,
-            course,
-        ):
-            return Response(
-                {"detail": "You cannot modify this course."},
-                status=status.HTTP_403_FORBIDDEN,
+            serializer.is_valid(
+                raise_exception=True
             )
 
-        serializer = CourseSerializer(
-            course,
-            data=request.data,
-        )
+            serializer.save()
 
-        serializer.is_valid(
-            raise_exception=True
-        )
+            return Response(
+                serializer.data,
+                status=status.HTTP_200_OK,
+            )
+        except ValidationError as e:
+            logger.error(f"Course update validation error: {e}")
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(f"Course update error: {e}")
+            return Response(
+                {"detail": "An error occurred during course update."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-        serializer.save()
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
+    @extend_schema(
+        operation_id="partial_update_course",
+        description="Update a course partially (owner/admin only)",
+        request=CourseSerializer,
+        responses={200: CourseSerializer, 403: None, 404: None}
+    )
     def patch(self, request, pk):
+        try:
+            course = self.get_object(pk)
 
-        course = self.get_object(pk)
+            if not course:
+                return Response(
+                    {"detail": "Course not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        if not course:
-            return Response(
-                {"detail": "Course not found."},
-                status=status.HTTP_404_NOT_FOUND,
+            permission = IsCourseOwnerOrAdmin()
+
+            if not permission.has_object_permission(
+                request,
+                self,
+                course,
+            ):
+                return Response(
+                    {"detail": "You cannot modify this course."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            serializer = CourseSerializer(
+                course,
+                data=request.data,
+                partial=True,
             )
 
-        permission = IsCourseOwnerOrAdmin()
-
-        if not permission.has_object_permission(
-            request,
-            self,
-            course,
-        ):
-            return Response(
-                {"detail": "You cannot modify this course."},
-                status=status.HTTP_403_FORBIDDEN,
+            serializer.is_valid(
+                raise_exception=True
             )
 
-        serializer = CourseSerializer(
-            course,
-            data=request.data,
-            partial=True,
-        )
+            serializer.save()
 
-        serializer.is_valid(
-            raise_exception=True
-        )
+            return Response(
+                serializer.data,
+                status=status.HTTP_200_OK,
+            )
+        except ValidationError as e:
+            logger.error(f"Course partial update validation error: {e}")
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(f"Course partial update error: {e}")
+            return Response(
+                {"detail": "An error occurred during course update."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-        serializer.save()
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
+    @extend_schema(
+        operation_id="delete_course",
+        description="Delete a course (owner/admin only)",
+        responses={204: None, 403: None, 404: None}
+    )
     def delete(self, request, pk):
+        try:
+            course = self.get_object(pk)
 
-        course = self.get_object(pk)
+            if not course:
+                return Response(
+                    {"detail": "Course not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        if not course:
+            permission = IsCourseOwnerOrAdmin()
+
+            if not permission.has_object_permission(
+                request,
+                self,
+                course,
+            ):
+                return Response(
+                    {"detail": "You cannot delete this course."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            course.delete()
+
             return Response(
-                {"detail": "Course not found."},
-                status=status.HTTP_404_NOT_FOUND,
+                {
+                    "message": "Course deleted successfully."
+                },
+                status=status.HTTP_204_NO_CONTENT,
             )
-
-        permission = IsCourseOwnerOrAdmin()
-
-        if not permission.has_object_permission(
-            request,
-            self,
-            course,
-        ):
+        except Exception as e:
+            logger.error(f"Course deletion error: {e}")
             return Response(
-                {"detail": "You cannot delete this course."},
-                status=status.HTTP_403_FORBIDDEN,
+                {"detail": "An error occurred during course deletion."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-        course.delete()
-
-        return Response(
-            {
-                "message": "Course deleted successfully."
-            },
-            status=status.HTTP_204_NO_CONTENT,
-        )
 
 
 
@@ -273,48 +359,59 @@ class CoursePublishView(APIView):
         IsAuthenticated,
     ]
 
+    @extend_schema(
+        operation_id="publish_course",
+        description="Publish a course (owner/admin only)",
+        responses={200: CourseSerializer, 400: None, 403: None, 404: None}
+    )
     def post(self, request, pk):
-
         try:
-            course = Course.objects.get(pk=pk)
+            try:
+                course = Course.objects.get(pk=pk)
 
-        except Course.DoesNotExist:
+            except Course.DoesNotExist:
+                return Response(
+                    {
+                        "detail": "Course not found."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if (
+                request.user.role != User.Role.ADMIN
+                and course.instructor_id != request.user.id
+            ):
+                return Response(
+                    {
+                        "detail": (
+                            "You can only publish "
+                            "your own courses."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            try:
+                course = publish_course(course)
+
+            except CoursePublishError as exc:
+                return Response(
+                    {
+                        "detail": str(exc)
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             return Response(
-                {
-                    "detail": "Course not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
+                CourseSerializer(course).data,
+                status=status.HTTP_200_OK,
             )
-
-        if (
-            request.user.role != User.Role.ADMIN
-            and course.instructor_id != request.user.id
-        ):
+        except Exception as e:
+            logger.error(f"Course publish error: {e}")
             return Response(
-                {
-                    "detail": (
-                        "You can only publish "
-                        "your own courses."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+                {"detail": "An error occurred during course publishing."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-        try:
-            course = publish_course(course)
-
-        except CoursePublishError as exc:
-            return Response(
-                {
-                    "detail": str(exc)
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        return Response(
-            CourseSerializer(course).data,
-            status=status.HTTP_200_OK,
-        )
 
 
 
@@ -323,130 +420,111 @@ class CourseArchiveView(APIView):
         IsAuthenticated,
     ]
 
+    @extend_schema(
+        operation_id="archive_course",
+        description="Archive a course (owner/admin only)",
+        responses={200: CourseSerializer, 403: None, 404: None}
+    )
     def post(self, request, pk):
-
         try:
-            course = Course.objects.get(pk=pk)
+            try:
+                course = Course.objects.get(pk=pk)
 
-        except Course.DoesNotExist:
+            except Course.DoesNotExist:
+                return Response(
+                    {
+                        "detail": "Course not found."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            if (
+                request.user.role != User.Role.ADMIN
+                and course.instructor_id != request.user.id
+            ):
+                return Response(
+                    {
+                        "detail": (
+                            "You can only archive "
+                            "your own courses."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            course = archive_course(course)
+
             return Response(
-                {
-                    "detail": "Course not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
+                CourseSerializer(course).data,
+                status=status.HTTP_200_OK,
+            )
+        except Exception as e:
+            logger.error(f"Course archive error: {e}")
+            return Response(
+                {"detail": "An error occurred during course archiving."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        if (
-            request.user.role != User.Role.ADMIN
-            and course.instructor_id != request.user.id
-        ):
-            return Response(
-                {
-                    "detail": (
-                        "You can only archive "
-                        "your own courses."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        course = archive_course(course)
-
-        return Response(
-            CourseSerializer(course).data,
-            status=status.HTTP_200_OK,
-        )
 
 
 
+class CourseSectionListCreateView(ListCreateAPIView):
 
-class CourseSectionListCreateView(APIView):
-
+    serializer_class = CourseSectionSerializer
     permission_classes = [
         IsAuthenticated,
+        IsAdminOrInstructor,
     ]
 
-    def get(self, request, course_id):
-
-        course = Course.objects.filter(
-            id=course_id,
-        ).first()
+    def get_queryset(self):
+        course_id = self.kwargs.get('course_id')
+        course = Course.objects.filter(id=course_id).first()
 
         if not course:
-            return Response(
-                {
-                    "detail": "Course not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return CourseSection.objects.none()
 
-        sections = (
+        return (
             CourseSection.objects
             .filter(course=course)
             .order_by("order", "created_at")
         )
 
-        serializer = CourseSectionSerializer(
-            sections,
-            many=True,
-        )
+    @extend_schema(
+        operation_id="list_sections",
+        description="List all sections for a specific course",
+        responses={200: CourseSectionSerializer(many=True), 404: None}
+    )
 
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
-    def post(self, request, course_id):
-
-        course = Course.objects.filter(
-            id=course_id,
-        ).first()
+    @extend_schema(
+        operation_id="create_section",
+        description="Create a new section for a course (owner/admin only)",
+        request=CourseSectionSerializer,
+        responses={201: CourseSectionSerializer, 403: None, 404: None}
+    )
+    def perform_create(self, serializer):
+        course_id = self.kwargs.get('course_id')
+        course = Course.objects.filter(id=course_id).first()
 
         if not course:
-            return Response(
-                {
-                    "detail": "Course not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            raise ValidationError("Course not found.")
 
-        if request.user.role == User.Role.ADMIN:
+        # Check if user is admin or course owner
+        if self.request.user.role == User.Role.ADMIN:
             allowed = True
         elif (
-            request.user.role == User.Role.INSTRUCTOR
-            and course.instructor_id == request.user.id
+            self.request.user.role == User.Role.INSTRUCTOR
+            and course.instructor_id == self.request.user.id
         ):
             allowed = True
         else:
             allowed = False
 
         if not allowed:
-            return Response(
-                {
-                    "detail": (
-                        "You can only manage sections "
-                        "of your own courses."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            raise ValidationError(
+                "You can only manage sections of your own courses."
             )
 
-        serializer = CourseSectionSerializer(
-            data=request.data,
-        )
-
-        serializer.is_valid(
-            raise_exception=True,
-        )
-
-        section = serializer.save(
-            course=course,
-        )
-
-        return Response(
-            CourseSectionSerializer(section).data,
-            status=status.HTTP_201_CREATED,
-        )
+        serializer.save(course=course)
 
 
 
@@ -466,6 +544,11 @@ class CourseSectionDetailView(APIView):
             .first()
         )
 
+    @extend_schema(
+        operation_id="retrieve_section",
+        description="Retrieve a specific section by ID",
+        responses={200: CourseSectionSerializer, 404: None}
+    )
     def get(self, request, pk):
 
         section = self.get_object(pk)
@@ -487,95 +570,126 @@ class CourseSectionDetailView(APIView):
             status=status.HTTP_200_OK,
         )
 
+    @extend_schema(
+        operation_id="partial_update_section",
+        description="Update a section partially (owner/admin only)",
+        request=CourseSectionSerializer,
+        responses={200: CourseSectionSerializer, 403: None, 404: None}
+    )
     def patch(self, request, pk):
+        try:
+            section = self.get_object(pk)
 
-        section = self.get_object(pk)
+            if not section:
+                return Response(
+                    {
+                        "detail": "Section not found."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        if not section:
-            return Response(
-                {
-                    "detail": "Section not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
+            permission = IsSectionOwnerOrAdmin()
+
+            if not permission.has_object_permission(
+                request,
+                self,
+                section,
+            ):
+                return Response(
+                    {
+                        "detail": (
+                            "You cannot modify this section."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            serializer = CourseSectionSerializer(
+                section,
+                data=request.data,
+                partial=True,
             )
 
-        permission = IsSectionOwnerOrAdmin()
-
-        if not permission.has_object_permission(
-            request,
-            self,
-            section,
-        ):
-            return Response(
-                {
-                    "detail": (
-                        "You cannot modify this section."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            serializer.is_valid(
+                raise_exception=True,
             )
 
-        serializer = CourseSectionSerializer(
-            section,
-            data=request.data,
-            partial=True,
-        )
+            serializer.save()
 
-        serializer.is_valid(
-            raise_exception=True,
-        )
+            return Response(
+                serializer.data,
+                status=status.HTTP_200_OK,
+            )
+        except ValidationError as e:
+            logger.error(f"Section update validation error: {e}")
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(f"Section update error: {e}")
+            return Response(
+                {"detail": "An error occurred during section update."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-        serializer.save()
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
+    @extend_schema(
+        operation_id="delete_section",
+        description="Delete a section (owner/admin only)",
+        responses={204: None, 403: None, 404: None}
+    )
     def delete(self, request, pk):
+        try:
+            section = self.get_object(pk)
 
-        section = self.get_object(pk)
+            if not section:
+                return Response(
+                    {
+                        "detail": "Section not found."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        if not section:
+            permission = IsSectionOwnerOrAdmin()
+
+            if not permission.has_object_permission(
+                request,
+                self,
+                section,
+            ):
+                return Response(
+                    {
+                        "detail": (
+                            "You cannot delete this section."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            section.delete()
+
             return Response(
-                {
-                    "detail": "Section not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
+                status=status.HTTP_204_NO_CONTENT,
+            )
+        except Exception as e:
+            logger.error(f"Section deletion error: {e}")
+            return Response(
+                {"detail": "An error occurred during section deletion."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        permission = IsSectionOwnerOrAdmin()
-
-        if not permission.has_object_permission(
-            request,
-            self,
-            section,
-        ):
-            return Response(
-                {
-                    "detail": (
-                        "You cannot delete this section."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        section.delete()
-
-        return Response(
-            status=status.HTTP_204_NO_CONTENT,
-        )
 
 
+class LessonListCreateView(ListCreateAPIView):
 
-class LessonListCreateView(APIView):
-
+    serializer_class = LessonSerializer
     permission_classes = [
         IsAuthenticated,
+        IsAdminOrInstructor,
     ]
 
-    def get(self, request, section_id):
-
+    def get_queryset(self):
+        section_id = self.kwargs.get('section_id')
         section = (
             CourseSection.objects
             .select_related("course")
@@ -584,31 +698,28 @@ class LessonListCreateView(APIView):
         )
 
         if not section:
-            return Response(
-                {
-                    "detail": "Section not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return Lesson.objects.none()
 
-        lessons = (
+        return (
             Lesson.objects
             .filter(section=section)
             .order_by("order", "created_at")
         )
 
-        serializer = LessonSerializer(
-            lessons,
-            many=True,
-        )
+    @extend_schema(
+        operation_id="list_lessons",
+        description="List all lessons for a specific section",
+        responses={200: LessonSerializer(many=True), 404: None}
+    )
 
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
-    def post(self, request, section_id):
-
+    @extend_schema(
+        operation_id="create_lesson",
+        description="Create a new lesson for a section (owner/admin only)",
+        request=LessonSerializer,
+        responses={201: LessonSerializer, 403: None, 404: None}
+    )
+    def perform_create(self, serializer):
+        section_id = self.kwargs.get('section_id')
         section = (
             CourseSection.objects
             .select_related("course")
@@ -617,53 +728,25 @@ class LessonListCreateView(APIView):
         )
 
         if not section:
-            return Response(
-                {
-                    "detail": "Section not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            raise ValidationError("Section not found.")
 
-        if request.user.role == User.Role.ADMIN:
+        # Check if user is admin or course owner
+        if self.request.user.role == User.Role.ADMIN:
             allowed = True
-
         elif (
-            request.user.role == User.Role.INSTRUCTOR
-            and section.course.instructor_id
-            == request.user.id
+            self.request.user.role == User.Role.INSTRUCTOR
+            and section.course.instructor_id == self.request.user.id
         ):
             allowed = True
-
         else:
             allowed = False
 
         if not allowed:
-            return Response(
-                {
-                    "detail": (
-                        "You can only manage lessons "
-                        "in your own courses."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            raise ValidationError(
+                "You can only manage lessons in your own courses."
             )
 
-        serializer = LessonSerializer(
-            data=request.data,
-        )
-
-        serializer.is_valid(
-            raise_exception=True,
-        )
-
-        lesson = serializer.save(
-            section=section,
-        )
-
-        return Response(
-            LessonSerializer(lesson).data,
-            status=status.HTTP_201_CREATED,
-        )
+        serializer.save(section=section)
 
 
 
@@ -685,6 +768,11 @@ class LessonDetailView(APIView):
             .first()
         )
 
+    @extend_schema(
+        operation_id="retrieve_lesson",
+        description="Retrieve a specific lesson by ID",
+        responses={200: LessonSerializer, 404: None}
+    )
     def get(self, request, pk):
 
         lesson = self.get_object(pk)
@@ -731,89 +819,123 @@ class LessonDetailView(APIView):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    @extend_schema(
+        operation_id="partial_update_lesson",
+        description="Update a lesson partially (owner/admin only)",
+        request=LessonSerializer,
+        responses={200: LessonSerializer, 403: None, 404: None}
+    )
     def patch(self, request, pk):
+        try:
+            lesson = self.get_object(pk)
 
-        lesson = self.get_object(pk)
+            if not lesson:
+                return Response(
+                    {
+                        "detail": "Lesson not found."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        if not lesson:
-            return Response(
-                {
-                    "detail": "Lesson not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
+            permission = IsLessonOwnerOrAdmin()
+
+            if not permission.has_object_permission(
+                request,
+                self,
+                lesson,
+            ):
+                return Response(
+                    {
+                        "detail": (
+                            "You cannot modify this lesson."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            serializer = LessonSerializer(
+                lesson,
+                data=request.data,
+                partial=True,
             )
 
-        permission = IsLessonOwnerOrAdmin()
-
-        if not permission.has_object_permission(
-            request,
-            self,
-            lesson,
-        ):
-            return Response(
-                {
-                    "detail": (
-                        "You cannot modify this lesson."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+            serializer.is_valid(
+                raise_exception=True,
             )
 
-        serializer = LessonSerializer(
-            lesson,
-            data=request.data,
-            partial=True,
-        )
+            serializer.save()
 
-        serializer.is_valid(
-            raise_exception=True,
-        )
+            return Response(
+                serializer.data,
+                status=status.HTTP_200_OK,
+            )
+        except ValidationError as e:
+            logger.error(f"Lesson update validation error: {e}")
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            logger.error(f"Lesson update error: {e}")
+            return Response(
+                {"detail": "An error occurred during lesson update."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-        serializer.save()
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
+    @extend_schema(
+        operation_id="delete_lesson",
+        description="Delete a lesson (owner/admin only)",
+        responses={204: None, 403: None, 404: None}
+    )
     def delete(self, request, pk):
+        try:
+            lesson = self.get_object(pk)
 
-        lesson = self.get_object(pk)
+            if not lesson:
+                return Response(
+                    {
+                        "detail": "Lesson not found."
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
-        if not lesson:
+            permission = IsLessonOwnerOrAdmin()
+
+            if not permission.has_object_permission(
+                request,
+                self,
+                lesson,
+            ):
+                return Response(
+                    {
+                        "detail": (
+                            "You cannot delete this lesson."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            lesson.delete()
+
             return Response(
-                {
-                    "detail": "Lesson not found."
-                },
-                status=status.HTTP_404_NOT_FOUND,
+                status=status.HTTP_204_NO_CONTENT,
             )
-
-        permission = IsLessonOwnerOrAdmin()
-
-        if not permission.has_object_permission(
-            request,
-            self,
-            lesson,
-        ):
+        except Exception as e:
+            logger.error(f"Lesson deletion error: {e}")
             return Response(
-                {
-                    "detail": (
-                        "You cannot delete this lesson."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN,
+                {"detail": "An error occurred during lesson deletion."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-        lesson.delete()
-
-        return Response(
-            status=status.HTTP_204_NO_CONTENT,
-        )
 
 
 class CourseCurriculumView(APIView):
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        operation_id="course_curriculum",
+        description="Get the full curriculum of a published course (sections and lessons)",
+        responses={200: CourseCurriculumSerializer, 404: None}
+    )
     def get(self, request, pk):
 
         course = (

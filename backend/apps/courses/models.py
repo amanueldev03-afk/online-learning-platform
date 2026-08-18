@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 from django.utils.text import slugify
+from apps.categories.models import Category
 
 
 class Course(models.Model):
@@ -41,9 +42,13 @@ class Course(models.Model):
         blank=True,
         null=True,
     )
-
-    category = models.CharField(
-        max_length=100,
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.PROTECT,
+        related_name="courses",
+        db_index=True,
+        null=True,
+        blank=True,
     )
 
     level = models.CharField(

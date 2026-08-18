@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    AdminLoginView,
     LoginView,
     LogoutView,
     MeView,
@@ -65,5 +66,10 @@ urlpatterns = [
         "google/",
         GoogleLoginView.as_view(),
         name="google-login",
+    ),
+    path(
+        "admin/login/",
+        AdminLoginView.as_view(),
+        name="admin-login",
     ),
 ]
