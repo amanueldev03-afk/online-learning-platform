@@ -1,12 +1,15 @@
 from rest_framework import status
+from rest_framework.permissions import AllowAny
 from rest_framework.permissions import IsAuthenticated
+from apps.enrollments.access import can_access_lesson
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.generics import ListAPIView
 from drf_spectacular.utils import extend_schema
 
 from apps.accounts.models import User
-from apps.courses.models import Course
+from apps.courses.models import Course, Lesson
+from apps.courses.serializers import LessonSerializer
 
 from .models import Enrollment
 from .serializers import EnrollmentSerializer
@@ -101,4 +104,54 @@ class MyEnrollmentListView(ListAPIView):
             Enrollment.objects
             .filter(learner=self.request.user)
             .select_related("course")
+        )
+
+
+
+class LessonDetailView(APIView):
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, pk):
+
+        lesson = (
+            Lesson.objects
+            .select_related(
+                "section",
+                "section__course",
+            )
+            .filter(
+                pk=pk,
+                section__course__status=Course.Status.PUBLISHED,
+            )
+            .first()
+        )
+
+        if not lesson:
+            return Response(
+                {
+                    "detail": "Lesson not found."
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not can_access_lesson(
+            user=request.user,
+            lesson=lesson,
+        ):
+            return Response(
+                {
+                    "detail": (
+                        "Enrollment is required "
+                        "to access this lesson."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = LessonSerializer(lesson)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
         )
