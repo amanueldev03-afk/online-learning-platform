@@ -9,6 +9,7 @@ from rest_framework_simplejwt.views import (
 )
 
 urlpatterns = [
+    
     path("admin/",
        admin.site.urls),
 
@@ -19,13 +20,7 @@ urlpatterns = [
     ),
 
     path(
-        "api/auth/",
-        include("apps.accounts.urls"),
-
-    ),
-
-    path(
-        "api/auth/token/refresh/",
+        "api/accounts/token/refresh/",
         TokenRefreshView.as_view(),
         name="token-refresh",
     ),
@@ -43,6 +38,13 @@ urlpatterns = [
         ),
         name="swagger-ui",
     ),
+
+    path(
+        "api/accounts/",
+        include("apps.accounts.urls"),
+
+    ),
+
     path(
         "api/courses/",
         include("apps.courses.urls"),
@@ -56,5 +58,9 @@ urlpatterns = [
     path(
         "api/enrollments/",
         include("apps.enrollments.urls"),
+    ),
+    path(
+        "api/progress/",
+        include("apps.progress.urls"),
     ),
     ]

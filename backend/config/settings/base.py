@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     "apps.courses",
     "apps.categories",
     "apps.enrollments",
+    "apps.progress",
 
 
     #allauth
