@@ -37,7 +37,7 @@ def publish_course(course):
             "Course description is required."
         )
 
-    if not course.category.strip():
+    if not course.category:
         raise CoursePublishError(
             "Course category is required."
         )

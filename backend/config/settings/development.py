@@ -1,3 +1,4 @@
+import sys
 from .base import *
 
 DEBUG = True
@@ -11,8 +12,13 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
 
-# Use Supabase PostgreSQL for development
-# DATABASES configuration inherited from base.py using DATABASE_URL
+# Use SQLite for local development
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
 
 # EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
